@@ -56,7 +56,7 @@ def search_nasa_datasets(query: str, rows: int = 10) -> dict:
     return response.json()
 
 
-def show_nasa_dataset(dataset_id: str) -> dict:
+def get_nasa_dataset(dataset_id: str) -> dict:
     """Fetch full metadata for a single NASA CKAN dataset by its ID or name.
 
     Parameters

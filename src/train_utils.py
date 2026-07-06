@@ -58,14 +58,14 @@ def save_checkpoint(
     epoch: int,
     path: Path,
 ) -> None:
-    """Save model and optimiser state to disk.
+    """Save model and optimizer state to disk.
 
     Parameters
     ----------
     model : nn.Module
         The model whose weights we want to save.
     optimizer : torch.optim.Optimizer
-        The optimiser whose state we also save (allows resuming training).
+        The optimizer whose state we also save (allows resuming training).
     epoch : int
         Current epoch number (stored as metadata in the checkpoint).
     path : Path
@@ -90,14 +90,14 @@ def load_checkpoint(
     path: Path,
     device: torch.device,
 ) -> int:
-    """Load model and optimiser weights from a checkpoint file.
+    """Load model and optimizer weights from a checkpoint file.
 
     Parameters
     ----------
     model : nn.Module
         Model to load weights into (must have the same architecture).
     optimizer : torch.optim.Optimizer
-        Optimiser to restore state into.
+        Optimizer to restore state into.
     path : Path
         Path to the ``.pth`` checkpoint file.
     device : torch.device

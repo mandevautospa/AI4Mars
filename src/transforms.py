@@ -4,8 +4,8 @@ src/transforms.py
 Helper functions for image and mask preprocessing.
 
 Key rule for segmentation preprocessing:
-  - Images contain *colour information* — normal (bilinear) resizing is fine
-    because intermediate interpolated pixel values are valid colours.
+  - Images contain *color information* — normal (bilinear) resizing is fine
+    because intermediate interpolated pixel values are valid colors.
   - Masks contain discrete *class IDs* (integers like 0, 1, 2, 3, 255).
     Interpolating these produces meaningless fractional values such as 1.7.
     You MUST use NEAREST-NEIGHBOUR interpolation for masks.
@@ -42,8 +42,8 @@ def resize_image_and_mask(
     (resized_image, resized_mask) : tuple of PIL.Image.Image
         Both resized to *image_size*.
     """
-    # Standard resizing is fine for the photograph — bilinear interpolation
-    # produces smooth colour gradients.
+    # Standard BILINEAR resampling (PIL default) is fine for the photograph —
+    # it produces smooth color gradients between valid pixel values.
     resized_image = image.resize(image_size)
 
     # Nearest-neighbour MUST be used for the mask so that class IDs are never

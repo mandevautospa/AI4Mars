@@ -39,7 +39,11 @@ CLASS_NAMES = {
     255: "ignore",
 }
 
-# Assign a fixed colour to each class for consistent overlays.
+# ---------------------------------------------------------------------------
+# Comments: American English spelling throughout Python source files
+# ---------------------------------------------------------------------------
+
+# Assign a fixed color to each class for consistent overlays.
 # Colours are (R, G, B) tuples in the [0, 255] range.
 CLASS_COLORS = {
     0: (210, 180, 140),   # soil      — tan
@@ -78,7 +82,7 @@ def show_image(image: np.ndarray, title: str = "Image", ax=None) -> None:
 
 
 def show_mask(mask: np.ndarray, title: str = "Mask", ax=None) -> None:
-    """Display a class-ID mask with one colour per class.
+    """Display a class-ID mask with one color per class.
 
     Parameters
     ----------
@@ -99,7 +103,7 @@ def show_mask(mask: np.ndarray, title: str = "Mask", ax=None) -> None:
     ax.set_title(title)
     ax.axis("off")
 
-    # Add a legend showing which colour corresponds to which class.
+    # Add a legend showing which color corresponds to which class.
     patches = [
         mpatches.Patch(
             color=[c / 255 for c in CLASS_COLORS.get(cid, (200, 200, 200))],
@@ -175,7 +179,7 @@ def show_sample(image_path, mask_path) -> None:
 
     Shows three panels side-by-side:
       1. Original image
-      2. Class mask (coloured)
+      2. Class mask (colored)
       3. Image + mask overlay
 
     Parameters

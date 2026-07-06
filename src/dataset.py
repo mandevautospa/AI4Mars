@@ -11,7 +11,7 @@ AI4Mars label IDs (verify against official documentation!):
     255 -> ignore / unlabeled
 
 The dataset expects image/mask pairs where:
-  - Images are colour rover photographs (JPG or PNG).
+  - Images are color rover photographs (JPG or PNG).
   - Masks are single-channel PNG files where each pixel value is a class ID.
 
 Usage
@@ -89,7 +89,7 @@ class AI4MarsDataset(Dataset):
         # ------------------------------------------------------------------
         # Resize
         # ------------------------------------------------------------------
-        # Standard bilinear / bicubic resampling is fine for colour images.
+        # Standard BILINEAR resampling (PIL default) is fine for color images.
         image = image.resize(self.image_size)
 
         # NEAREST-NEIGHBOUR is *required* for masks because the pixel values
