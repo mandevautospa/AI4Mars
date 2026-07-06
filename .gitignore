@@ -1,3 +1,23 @@
+# Virtual environment
+.venv/
+
+# Data directories — not committed (download manually)
+data/raw/
+data/processed/
+data/samples/
+
+# Model checkpoints — not committed
+models/
+
+# Generated outputs — not committed
+outputs/predictions/
+outputs/logs/
+
+# Archive / model files
+*.zip
+*.pth
+*.pt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
