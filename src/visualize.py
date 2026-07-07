@@ -15,6 +15,10 @@ AI4Mars uses TWO different pixel-value label schemes (see
     3   -> big_rock
     255 -> ignore / unlabeled
 
+Some MSL MastCam training masks (``msl/mcam/labels/train/*_15033_merged.png``)
+use a legacy ignore value ``4`` on disk. Those masks are normalized to ``255``
+before display and downstream use.
+
 ``M2020_GEO`` (only ``m2020/labels/M2020_GEO/...``, Perseverance geology
 labels): bedrock subtypes (0-6), float rock subtypes (10-17), sand subtypes
 (20-22), pebbles (30), vein (40), hill/peak (50), 255 -> ignore.
@@ -30,6 +34,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 from PIL import Image
+
+from src.dataset import normalize_ai4mars_mask
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +289,7 @@ def show_sample(image_path, mask_path) -> None:
     # Load
     image = np.array(Image.open(image_path).convert("RGB"))
     mask = np.array(Image.open(mask_path), dtype=np.int64)
+    mask = normalize_ai4mars_mask(mask, mask_path)
 
     # Auto-detect which of the two AI4Mars label schemes this mask uses.
     scheme = detect_label_scheme(mask_path)
