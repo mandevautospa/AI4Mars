@@ -133,6 +133,14 @@ def find_image_files(root: Path) -> List[Path]:
 
     Searches for common image extensions used by rover cameras.
 
+    .. note::
+        ``.png`` is intentionally **excluded** here.  In the AI4Mars dataset,
+        every actual rover photograph is ``.jpg``/``.jpeg``/``.tif`` — all
+        ``.png`` files are masks (segmentation labels, rover masks, or range
+        masks).  Including ``.png`` here would make every mask also match as
+        an "image", corrupting the stem lookup used by
+        :func:`build_pairs_by_stem`.
+
     Parameters
     ----------
     root : Path
@@ -143,7 +151,7 @@ def find_image_files(root: Path) -> List[Path]:
     list[Path]
         Sorted list of image file paths.
     """
-    image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+    image_extensions = {".jpg", ".jpeg", ".tif", ".tiff"}
     files = [
         p for p in root.rglob("*")
         if p.suffix.lower() in image_extensions and p.is_file()
@@ -154,8 +162,14 @@ def find_image_files(root: Path) -> List[Path]:
 def find_mask_files(root: Path) -> List[Path]:
     """Recursively find all mask files under *root*.
 
-    AI4Mars masks are PNG files.  If the dataset uses a dedicated ``masks/``
-    subdirectory, you can pass that path directly instead of the full root.
+    AI4Mars masks are PNG files stored under a ``labels/`` directory (e.g.
+    ``labels/train``, ``labels/test/masked-gold-min1-100agree``,
+    ``labels/NAV``, ``labels/M2020_GEO``).  We deliberately restrict the
+    search to paths containing a ``labels`` directory component because the
+    merged AI4Mars archive also ships auxiliary ``.png`` files under
+    ``images/`` (rover masks in ``mxy/`` and 30m range masks in
+    ``rng-30m/``) that are **not** segmentation labels and would otherwise be
+    misidentified as masks.
 
     Parameters
     ----------
@@ -167,7 +181,10 @@ def find_mask_files(root: Path) -> List[Path]:
     list[Path]
         Sorted list of mask file paths.
     """
-    files = [p for p in root.rglob("*.png") if p.is_file()]
+    files = [
+        p for p in root.rglob("*.png")
+        if p.is_file() and "labels" in p.parts
+    ]
     return sorted(files)
 
 
@@ -177,16 +194,22 @@ def build_pairs_by_stem(
 ) -> List[Tuple[Path, Path]]:
     """Pair image and mask files by matching their filename stems.
 
-    A "stem" is the filename without its extension.  For example:
-        ``2p129641989eth0361p2600r8m1.jpg``  →  stem ``2p129641989eth0361p2600r8m1``
-        ``2p129641989eth0361p2600r8m1.png``  →  stem ``2p129641989eth0361p2600r8m1``
+    A "stem" is the filename without its extension.  Per the AI4Mars
+    documentation (``info.md``): *"Names of images match names of labels,
+    except for the extension (JPG, PNG) and sometimes an obvious suffix
+    (e.g. ``_merged``)"*.  In practice the suffix varies by camera/rover:
 
-    .. important::
-        This is a **conservative default** that assumes image and mask share
-        the same stem.  You **must** inspect the actual AI4Mars directory
-        layout after extracting the archive and adjust the pairing logic if
-        the naming convention differs.  Run ``01_dataset_inspection.ipynb``
-        to check the real structure before training.
+    - MSL NavCam (``ncam``):  ``<stem>.JPG``      ↔ ``<stem>.png``            (exact match)
+    - MSL MastCam (``mcam``): ``<stem>.JPG``      ↔ ``<stem>_15033_merged.png``
+    - MER (``eff``):          ``<stem>.JPG``      ↔ ``<stem>_merged6.png``
+    - M2020 tiled labels:     ``<stem>.jpeg``     ↔ ``<stem>_01_195J_merged3.png``
+
+    To handle all of these with one rule, a mask is matched to an image by
+    progressively trimming trailing ``_``-delimited segments off the mask's
+    stem until the remainder equals a known image stem (the *longest*
+    matching prefix wins).  This also naturally supports the tiled M2020
+    labels, where several mask files (one per tile/quadrant) can map back to
+    the same source image.
 
     Parameters
     ----------
@@ -198,16 +221,20 @@ def build_pairs_by_stem(
     Returns
     -------
     list[tuple[Path, Path]]
-        Matched (image, mask) pairs.  Only stems present in *both* lists are
-        included; unmatched files are silently skipped.
+        Matched (image, mask) pairs.  Masks with no matching image stem are
+        silently skipped.
     """
-    # Build a stem → path lookup for masks for O(1) lookups
-    mask_by_stem = {p.stem: p for p in mask_files}
+    # Build a stem → path lookup for images for O(1) lookups.
+    image_by_stem = {p.stem: p for p in image_files}
 
     pairs: List[Tuple[Path, Path]] = []
-    for img_path in image_files:
-        mask_path = mask_by_stem.get(img_path.stem)
-        if mask_path is not None:
-            pairs.append((img_path, mask_path))
+    for mask_path in mask_files:
+        segments = mask_path.stem.split("_")
+        for cutoff in range(len(segments), 0, -1):
+            candidate_stem = "_".join(segments[:cutoff])
+            img_path = image_by_stem.get(candidate_stem)
+            if img_path is not None:
+                pairs.append((img_path, mask_path))
+                break
 
     return pairs
