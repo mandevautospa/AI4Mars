@@ -248,13 +248,14 @@ def evaluate(
         "val_loss": total_loss / len(dataloader),
         "pixel_acc": acc,
         "mean_iou": miou,
-        if return_per_class_iou:
-            results["per_class_iou"] = intersection_over_union(
-                all_preds,
-                all_targets,
-                num_classes=num_classes,
-                ignore_index=ignore_index,
-            )
-
-        return results
     }
+
+    if return_per_class_iou:
+        results["per_class_iou"] = intersection_over_union(
+            all_preds,
+            all_targets,
+            num_classes=num_classes,
+            ignore_index=ignore_index,
+        )
+
+    return results
