@@ -10,3 +10,4 @@ opencv-python
 scikit-learn
 torch
 torchvision
+segmentation-models-pytorch
