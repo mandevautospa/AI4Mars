@@ -241,6 +241,15 @@ def show_image_mask_overlay(
     if img_float.max() > 1.0:
         img_float = img_float / 255.0
 
+    # Some discovered pairs can have mismatched dimensions; for visual overlay
+    # only, resize mask to image size with nearest-neighbour to preserve IDs.
+    if mask.shape != image.shape[:2]:
+        target_size = (image.shape[1], image.shape[0])
+        mask = np.array(
+            Image.fromarray(mask.astype(np.int32)).resize(target_size, resample=Image.NEAREST),
+            dtype=np.int64,
+        )
+
     mask_rgb = _mask_to_rgb(mask, scheme=scheme).astype(np.float32) / 255.0
 
     # Blend: overlay = (1 - alpha) * image + alpha * mask
@@ -298,6 +307,11 @@ def show_sample(image_path, mask_path) -> None:
     print(f"Image  : {image_path.name}  shape={image.shape}  dtype={image.dtype}")
     print(f"Mask   : {mask_path.name}  shape={mask.shape}  dtype={mask.dtype}")
     print(f"Label scheme: {scheme}")
+    if mask.shape != image.shape[:2]:
+        print(
+            "WARNING: image/mask spatial shapes differ; "
+            "resizing mask to image size for display overlay."
+        )
     unique_ids = np.unique(mask)
     print(f"Unique class IDs in mask: {unique_ids.tolist()}")
     print_mask_distribution(mask, scheme=scheme)
