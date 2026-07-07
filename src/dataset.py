@@ -27,12 +27,52 @@ Usage
 """
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+
+
+def _is_legacy_nav_ignore_mask(mask_path: Optional[Path]) -> bool:
+    """Return True for NAV masks that use legacy ignore label 4 instead of 255.
+
+    In the merged AI4Mars archive, MSL MastCam training masks under
+    ``msl/mcam/labels/train`` use filenames like ``*_15033_merged.png`` and can
+    contain the value ``4`` where the rest of the NAV dataset uses ``255`` for
+    ignored / unlabeled pixels.
+    """
+    if mask_path is None:
+        return False
+
+    normalized_path = str(mask_path).replace("\\", "/").lower()
+    return (
+        "msl/mcam/labels/train" in normalized_path
+        and normalized_path.endswith("_15033_merged.png")
+    )
+
+
+def normalize_ai4mars_mask(mask: np.ndarray, mask_path: Optional[Path] = None) -> np.ndarray:
+    """Normalize dataset-specific mask-ID quirks to the canonical AI4Mars IDs.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        Integer class-ID mask.
+    mask_path : Path, optional
+        Source path for the mask. Used to detect known subset-specific quirks.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized mask. The returned array is safe to use for training and
+        visual inspection with the canonical label IDs.
+    """
+    if _is_legacy_nav_ignore_mask(mask_path) and np.any(mask == 4):
+        mask = mask.copy()
+        mask[mask == 4] = 255
+    return mask
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +143,12 @@ class AI4MarsDataset(Dataset):
         # Image: H x W x 3, float32, range [0.0, 1.0]
         image = np.array(image, dtype=np.float32) / 255.0
 
-        # Mask: H x W, int64, values are class IDs
+        # Mask: H x W, int64, values are class IDs.
+        # Some MSL MastCam NAV train masks use a legacy ignore label 4 instead
+        # of the canonical 255; normalize them here so training/evaluation code
+        # consistently sees the same ignore_index.
         mask = np.array(mask, dtype=np.int64)
+        mask = normalize_ai4mars_mask(mask, mask_path)
 
         # ------------------------------------------------------------------
         # Convert to PyTorch tensors
