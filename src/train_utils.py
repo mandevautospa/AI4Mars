@@ -23,6 +23,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from src.metrics import mean_iou, pixel_accuracy
+from src.metrics import intersection_over_union
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,7 @@ def evaluate(
     device: torch.device,
     num_classes: int = 4,
     ignore_index: int = 255,
+    return_per_class_iou: bool = False,
 ) -> dict:
     """Evaluate the model on a validation or test DataLoader.
 
@@ -206,6 +208,9 @@ def evaluate(
         Number of semantic classes (not counting the ignore class).
     ignore_index : int
         Pixels with this label are excluded from metric computation.
+    return_per_class_iou : bool
+        If True, also compute and return per-class IoU in key
+        ``"per_class_iou"``.
 
     Returns
     -------
@@ -239,8 +244,18 @@ def evaluate(
     acc = pixel_accuracy(all_preds, all_targets, ignore_index=ignore_index)
     miou = mean_iou(all_preds, all_targets, num_classes=num_classes, ignore_index=ignore_index)
 
-    return {
+    results = {
         "val_loss": total_loss / len(dataloader),
         "pixel_acc": acc,
         "mean_iou": miou,
     }
+
+    if return_per_class_iou:
+        results["per_class_iou"] = intersection_over_union(
+            all_preds,
+            all_targets,
+            num_classes=num_classes,
+            ignore_index=ignore_index,
+        )
+
+    return results
