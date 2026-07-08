@@ -10,7 +10,13 @@ Semantic segmentation is a computer vision task where every pixel in an image is
 
 ## About the AI4Mars Dataset
 
-The [AI4Mars dataset](https://zenodo.org/record/4033453) was released by NASA/JPL and contains thousands of Mars rover images (Curiosity, Opportunity, Spirit) with crowd-sourced pixel-level terrain labels. Classes include **soil**, **bedrock**, **sand**, and **big rock**. The goal was to accelerate autonomous rover navigation research.
+The [AI4Mars terrain-segmentation dataset](https://zenodo.org/records/15995036) is the correct per-pixel segmentation release for this project. It contains Mars rover images and crowd-sourced terrain masks for navigation-oriented classes such as **soil**, **bedrock**, **sand**, and **big_rock**.
+
+The older Zenodo record [4033453](https://zenodo.org/record/4033453) is a different MSL image-classification dataset and should not be used here.
+
+### Research Question
+
+How effectively can pretrained encoder-decoder segmentation models classify navigational terrain classes in AI4Mars under local hardware constraints, and which terrain classes remain failure modes?
 
 > **Note:** You must download the dataset manually. See setup instructions below.
 
@@ -100,25 +106,26 @@ Open the repository folder in VS Code, then open any notebook. Select the **Pyth
 
 | # | Notebook | Goal |
 |---|----------|------|
-| 00 | `00_nasa_api_discovery.ipynb` | Use NASA CKAN and Zenodo APIs to locate dataset metadata and download links |
+| 00 | `00_nasa_api_discovery.ipynb` | Use NASA CKAN and Zenodo APIs to locate the correct terrain-segmentation record and download links |
 | 01 | `01_dataset_inspection.ipynb` | Inspect extracted files, count images/masks, verify pairing logic |
-| 02 | `02_dataset_viewer.ipynb` | Visualise image/mask overlays and audit class label quality |
-| 03 | `03_baseline_training.ipynb` | Train a minimal CNN segmentation baseline end-to-end |
-| 04 | `04_evaluation_error_analysis.ipynb` | Evaluate predictions with pixel accuracy and per-class IoU |
+| 02 | `02_dataset_viewer.ipynb` | Visualise NAV and M2020_GEO pairs, overlays, and class distributions |
+| 03 | `03_baseline_training.ipynb` | Train a baseline pretrained U-Net and record reproducible settings |
+| 04 | `04_evaluation_error_analysis.ipynb` | Evaluate predictions with pixel accuracy, per-class IoU, and error analysis |
 
 ---
 
 ## Current Milestone
 
-> **Load Mars rover image/mask pairs, visualise overlays, and verify class labels before model training.**
+> **Load Mars rover image/mask pairs, visualise overlays, verify class labels, and benchmark pretrained segmentation models under local hardware constraints.**
 
-Start with `00_nasa_api_discovery.ipynb` to find download links, then manually download and extract the AI4Mars dataset into `data/raw/`. Then run `01_dataset_inspection.ipynb` to verify the structure before proceeding.
+Start with `00_nasa_api_discovery.ipynb` to find the correct Zenodo record and download links, then manually download and extract the AI4Mars dataset into `data/raw/`. Then run `01_dataset_inspection.ipynb` to verify the structure before proceeding.
 
 ---
 
 ## Future Work
 
-- **Per-class IoU reporting** — detailed breakdown by terrain class
+- **Per-class IoU reporting** — detailed breakdown by terrain class and failure mode
 - **Uncertainty-aware segmentation** — predict confidence alongside class labels for safer navigation
 - **Rover-to-rover generalisation** — transfer between Curiosity, Opportunity, and Spirit data
 - **Hazard / traversability maps** — convert class predictions into actionable navigation masks
+- **Cleaner experiment series** — compare pretrained U-Net, EfficientNet encoders, DeepLabV3+, and Dice/Focal/CE hybrids

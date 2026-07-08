@@ -88,8 +88,8 @@ def get_nasa_dataset(dataset_id: str) -> dict:
 def get_zenodo_record(record_id: int) -> dict:
     """Fetch metadata for a single Zenodo record.
 
-    The AI4Mars record ID is **4033453**.
-    See: https://zenodo.org/record/4033453
+    The AI4Mars terrain-segmentation record ID is **15995036**.
+    See: https://zenodo.org/records/15995036
 
     Parameters
     ----------
