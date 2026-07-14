@@ -27,8 +27,9 @@ Usage
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+import hashlib
 import numpy as np
 import torch
 from PIL import Image
@@ -273,12 +274,103 @@ def build_pairs_by_stem(
 
     pairs: List[Tuple[Path, Path]] = []
     for mask_path in mask_files:
-        segments = mask_path.stem.split("_")
-        for cutoff in range(len(segments), 0, -1):
-            candidate_stem = "_".join(segments[:cutoff])
-            img_path = image_by_stem.get(candidate_stem)
-            if img_path is not None:
-                pairs.append((img_path, mask_path))
-                break
+        img_path = _find_source_image_for_mask(mask_path, image_by_stem)
+        if img_path is not None:
+            pairs.append((img_path, mask_path))
 
     return pairs
+
+
+def group_pairs_by_source_stem(pairs: List[Tuple[Path, Path]]) -> Dict[str, List[Tuple[Path, Path]]]:
+    """Group image/mask pairs by the stem of the source image.
+
+    This guarantees that all labels derived from the same source image stay in
+    the same partition when building train/validation/test splits.
+    """
+    grouped: Dict[str, List[Tuple[Path, Path]]] = {}
+    for image_path, mask_path in pairs:
+        source_stem = Path(image_path).stem
+        grouped.setdefault(source_stem, []).append((Path(image_path), Path(mask_path)))
+    return grouped
+
+
+def split_pairs_by_source_stem(
+    pairs: List[Tuple[Path, Path]],
+    train_ratio: float = 0.70,
+    val_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+) -> Dict[str, List[Tuple[Path, Path]]]:
+    """Deterministically split pairs into train/val/test partitions.
+
+    The split is metadata-aware and immutable for a fixed input dataset and
+    seed: every pair from the same source-image stem is assigned to the same
+    partition.
+    """
+    if abs((train_ratio + val_ratio + test_ratio) - 1.0) > 1e-6:
+        raise ValueError("train_ratio + val_ratio + test_ratio must sum to 1.0")
+
+    grouped = group_pairs_by_source_stem(pairs)
+    ordered_stems = sorted(
+        grouped.keys(),
+        key=lambda stem: hashlib.sha1(f"{seed}:{stem}".encode("utf-8")).hexdigest(),
+    )
+
+    total_groups = len(ordered_stems)
+    if total_groups == 0:
+        return {"train": [], "val": [], "test": []}
+
+    target_counts = [
+        int(round(total_groups * train_ratio)),
+        int(round(total_groups * val_ratio)),
+        int(round(total_groups * test_ratio)),
+    ]
+
+    # Fix rounding drift so the counts add up exactly.
+    target_counts[0] += total_groups - sum(target_counts)
+
+    # Ensure every partition is populated when enough groups exist.
+    if total_groups >= 3:
+        for idx in range(3):
+            if target_counts[idx] < 1:
+                donor = max(range(3), key=lambda j: target_counts[j])
+                if target_counts[donor] > 1:
+                    target_counts[donor] -= 1
+                    target_counts[idx] = 1
+
+    while sum(target_counts) < total_groups:
+        donor = max(range(3), key=lambda j: target_counts[j])
+        target_counts[donor] += 1
+
+    while sum(target_counts) > total_groups:
+        donor = max(range(3), key=lambda j: target_counts[j])
+        if target_counts[donor] > 1:
+            target_counts[donor] -= 1
+        else:
+            break
+
+    train_cutoff = target_counts[0]
+    val_cutoff = train_cutoff + target_counts[1]
+
+    partitions: Dict[str, List[Tuple[Path, Path]]] = {"train": [], "val": [], "test": []}
+    for index, stem in enumerate(ordered_stems):
+        if index < train_cutoff:
+            split = "train"
+        elif index < val_cutoff:
+            split = "val"
+        else:
+            split = "test"
+        partitions[split].extend(grouped[stem])
+
+    return partitions
+
+
+def _find_source_image_for_mask(mask_path: Path, image_by_stem: Dict[str, Path]) -> Optional[Path]:
+    """Find the source image path for a given mask path."""
+    segments = mask_path.stem.split("_")
+    for cutoff in range(len(segments), 0, -1):
+        candidate_stem = "_".join(segments[:cutoff])
+        img_path = image_by_stem.get(candidate_stem)
+        if img_path is not None:
+            return img_path
+    return None
