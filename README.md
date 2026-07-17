@@ -129,3 +129,23 @@ Start with `00_nasa_api_discovery.ipynb` to find the correct Zenodo record and d
 - **Rover-to-rover generalisation** — transfer between Curiosity, Opportunity, and Spirit data
 - **Hazard / traversability maps** — convert class predictions into actionable navigation masks
 - **Cleaner experiment series** — compare pretrained U-Net, EfficientNet encoders, DeepLabV3+, and Dice/Focal/CE hybrids
+
+---
+
+## AI4Mars Senior Research Agent
+
+The repository includes a persistent, read-only research advisor in `research_agent/`. It can inspect project files and notebooks, check segmentation metrics, estimate tensor memory, search current literature, critique experimental reasoning, and explain the mathematics behind recommendations.
+
+After installing the requirements, start an ongoing conversation with:
+
+```powershell
+python -m research_agent
+```
+
+Ask one question non-interactively with:
+
+```powershell
+python -m research_agent --ask "What is the highest-value experiment to run next?"
+```
+
+Conversation history is stored locally under `.research_agent/` and is not committed.

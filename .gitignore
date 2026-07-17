@@ -1,6 +1,12 @@
 # Virtual environment
 .venv/
 
+# Local secrets
+.env.local
+
+# Local research-agent conversation state
+.research_agent/
+
 # Data directories — not committed (download manually)
 data/raw/
 data/processed/
