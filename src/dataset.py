@@ -269,16 +269,28 @@ def build_pairs_by_stem(
         Matched (image, mask) pairs.  Masks with no matching image stem are
         silently skipped.
     """
-    # Build a stem → path lookup for images for O(1) lookups.
-    image_by_stem = {p.stem: p for p in image_files}
+    # Build a stem → list[path] lookup. Some merged AI4Mars subsets contain
+    # duplicate stems under different folders (for example mer/images/eff and
+    # mer/images/test). We keep all candidates and disambiguate per mask.
+    images_by_stem: Dict[str, List[Path]] = {}
+    for image_path in image_files:
+        images_by_stem.setdefault(image_path.stem, []).append(image_path)
 
     pairs: List[Tuple[Path, Path]] = []
     for mask_path in mask_files:
-        img_path = _find_source_image_for_mask(mask_path, image_by_stem)
+        img_path = _find_source_image_for_mask(mask_path, images_by_stem)
         if img_path is not None:
             pairs.append((img_path, mask_path))
 
     return pairs
+
+
+def find_duplicate_image_stems(image_files: List[Path]) -> Dict[str, List[Path]]:
+    """Return stems that appear in more than one image path."""
+    images_by_stem: Dict[str, List[Path]] = {}
+    for image_path in image_files:
+        images_by_stem.setdefault(image_path.stem, []).append(image_path)
+    return {stem: paths for stem, paths in images_by_stem.items() if len(paths) > 1}
 
 
 def group_pairs_by_source_stem(pairs: List[Tuple[Path, Path]]) -> Dict[str, List[Tuple[Path, Path]]]:
@@ -365,12 +377,72 @@ def split_pairs_by_source_stem(
     return partitions
 
 
-def _find_source_image_for_mask(mask_path: Path, image_by_stem: Dict[str, Path]) -> Optional[Path]:
+def _select_image_candidate_for_mask(mask_path: Path, candidates: List[Path]) -> Path:
+    """Choose the most plausible source image when multiple stems match."""
+    if len(candidates) == 1:
+        return candidates[0]
+
+    mask_parts = [part.lower() for part in mask_path.parts]
+
+    def score_candidate(image_path: Path) -> int:
+        score = 0
+        image_parts = [part.lower() for part in image_path.parts]
+
+        # Prefer same rover subtree.
+        for rover in ("m2020", "msl", "mer"):
+            if rover in mask_parts and rover in image_parts:
+                score += 5
+
+        # Prefer train↔train-like and test↔test-like directory affinity.
+        if "test" in mask_parts and "test" in image_parts:
+            score += 4
+        if "train" in mask_parts and "test" not in image_parts:
+            score += 2
+
+        # Camera/subset affinity.
+        for token in ("ncam", "mcam", "edr", "eff", "mxy"):
+            if token in mask_parts and token in image_parts:
+                score += 3
+
+        return score
+
+    ranked = sorted(((score_candidate(path), path) for path in candidates), reverse=True)
+    best_score = ranked[0][0]
+    best_paths = [path for score, path in ranked if score == best_score]
+
+    if len(best_paths) > 1:
+        # Common in merged archives: the same image exists as .jpg and .jpeg.
+        # Prefer a stable extension ordering before declaring ambiguity.
+        extension_priority = {".jpg": 3, ".jpeg": 2, ".tif": 1, ".tiff": 0}
+        best_by_ext = max(extension_priority.get(path.suffix.lower(), -1) for path in best_paths)
+        best_paths = [
+            path
+            for path in best_paths
+            if extension_priority.get(path.suffix.lower(), -1) == best_by_ext
+        ]
+
+    if len(best_paths) > 1:
+        # If still tied, prefer deterministic alphabetical order when all
+        # candidates only differ by inconsequential path details.
+        best_paths = sorted(best_paths, key=lambda p: str(p))
+        return best_paths[0]
+
+    if len(best_paths) != 1:
+        candidate_list = "\n".join(f"  - {path}" for path in sorted(candidates))
+        raise RuntimeError(
+            "Ambiguous image match for mask path with duplicate image stems. "
+            f"Mask: {mask_path}\nCandidates:\n{candidate_list}"
+        )
+
+    return best_paths[0]
+
+
+def _find_source_image_for_mask(mask_path: Path, images_by_stem: Dict[str, List[Path]]) -> Optional[Path]:
     """Find the source image path for a given mask path."""
     segments = mask_path.stem.split("_")
     for cutoff in range(len(segments), 0, -1):
         candidate_stem = "_".join(segments[:cutoff])
-        img_path = image_by_stem.get(candidate_stem)
-        if img_path is not None:
-            return img_path
+        candidate_images = images_by_stem.get(candidate_stem)
+        if candidate_images:
+            return _select_image_candidate_for_mask(mask_path, candidate_images)
     return None

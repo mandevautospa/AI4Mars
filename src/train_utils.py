@@ -17,6 +17,7 @@ Loss function:
 """
 
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -58,6 +59,7 @@ def save_checkpoint(
     optimizer: torch.optim.Optimizer,
     epoch: int,
     path: Path,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Save model and optimizer state to disk.
 
@@ -74,15 +76,16 @@ def save_checkpoint(
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-        },
-        path,
-    )
-    print(f"Checkpoint saved → {path}")
+    payload: Dict[str, Any] = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+    }
+    if metadata is not None:
+        payload["metadata"] = metadata
+
+    torch.save(payload, path)
+    print(f"Checkpoint saved -> {path}")
 
 
 def load_checkpoint(
@@ -90,6 +93,8 @@ def load_checkpoint(
     optimizer: torch.optim.Optimizer,
     path: Path,
     device: torch.device,
+    expected_metadata: Optional[Dict[str, Any]] = None,
+    require_metadata_match: bool = False,
 ) -> int:
     """Load model and optimizer weights from a checkpoint file.
 
@@ -116,9 +121,56 @@ def load_checkpoint(
     checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    if expected_metadata is not None:
+        _validate_checkpoint_metadata(
+            checkpoint=checkpoint,
+            expected_metadata=expected_metadata,
+            require_metadata_match=require_metadata_match,
+            checkpoint_path=path,
+        )
+
     epoch = checkpoint.get("epoch", 0)
     print(f"Checkpoint loaded from {path}  (epoch {epoch})")
     return epoch
+
+
+def _validate_checkpoint_metadata(
+    checkpoint: Dict[str, Any],
+    expected_metadata: Dict[str, Any],
+    require_metadata_match: bool,
+    checkpoint_path: Path,
+) -> None:
+    """Validate selected metadata keys against expected values."""
+    checkpoint_metadata = checkpoint.get("metadata")
+    if checkpoint_metadata is None:
+        message = (
+            "Checkpoint metadata not found. Cannot verify split provenance for "
+            f"{checkpoint_path}."
+        )
+        if require_metadata_match:
+            raise RuntimeError(message)
+        print(f"WARNING: {message}")
+        return
+
+    mismatches = []
+    for key, expected_value in expected_metadata.items():
+        actual_value = checkpoint_metadata.get(key)
+        if actual_value != expected_value:
+            mismatches.append((key, expected_value, actual_value))
+
+    if mismatches:
+        mismatch_text = "; ".join(
+            f"{key}: expected={expected!r}, actual={actual!r}"
+            for key, expected, actual in mismatches
+        )
+        message = (
+            "Checkpoint metadata does not match expected evaluation metadata: "
+            f"{mismatch_text}"
+        )
+        if require_metadata_match:
+            raise RuntimeError(message)
+        print(f"WARNING: {message}")
 
 
 # ---------------------------------------------------------------------------
