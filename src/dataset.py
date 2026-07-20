@@ -29,6 +29,7 @@ Usage
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import csv
 import hashlib
 import numpy as np
 import torch
@@ -103,12 +104,22 @@ class AI4MarsDataset(Dataset):
         pairs: List[Tuple],
         image_size: Tuple[int, int] = (256, 256),
         transform=None,
+        require_original_shape_match: bool = False,
     ):
         # Ensure all paths are proper Path objects so that we can call
         # .exists(), .stem, etc. safely later.
         self.pairs = [(Path(img), Path(mask)) for img, mask in pairs]
         self.image_size = image_size  # (width, height)
         self.transform = transform
+        if require_original_shape_match:
+            mismatches = find_shape_mismatches(self.pairs)
+            if mismatches:
+                example = mismatches[0]
+                raise ValueError(
+                    "Found image/mask geometry mismatch while strict shape matching is enabled. "
+                    f"Example pair: {example[0]} ({example[2][0]}x{example[2][1]}) vs "
+                    f"{example[1]} ({example[3][0]}x{example[3][1]})."
+                )
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -375,6 +386,108 @@ def split_pairs_by_source_stem(
         partitions[split].extend(grouped[stem])
 
     return partitions
+
+
+def find_shape_mismatches(
+    pairs: List[Tuple[Path, Path]],
+) -> List[Tuple[Path, Path, Tuple[int, int], Tuple[int, int]]]:
+    """Return pairs whose original image and mask dimensions differ.
+
+    Returns
+    -------
+    list[tuple[Path, Path, tuple[int, int], tuple[int, int]]]
+        Each tuple contains (image_path, mask_path, image_size_wh, mask_size_wh).
+    """
+    mismatches: List[Tuple[Path, Path, Tuple[int, int], Tuple[int, int]]] = []
+    for image_path, mask_path in pairs:
+        image_path = Path(image_path)
+        mask_path = Path(mask_path)
+        with Image.open(image_path) as image_obj:
+            image_size = image_obj.size
+        with Image.open(mask_path) as mask_obj:
+            mask_size = mask_obj.size
+        if image_size != mask_size:
+            mismatches.append((image_path, mask_path, image_size, mask_size))
+    return mismatches
+
+
+def load_pairs_from_manifest(
+    manifest_path: Path,
+    require_existing_files: bool = True,
+    require_shape_match: bool = True,
+    required_label_scheme: Optional[str] = None,
+) -> List[Tuple[Path, Path]]:
+    """Load image/mask pairs from a CSV manifest.
+
+    The manifest must contain a mask-path column and an image-path column.
+    Accepted aliases:
+      - image column: ``selected_image_path`` or ``image_path``
+      - mask column: ``mask_path``
+
+    Optional filters:
+      - ``required_label_scheme`` checks the ``label_scheme`` column when present.
+      - ``require_shape_match`` checks ``shape_match`` when present and always
+        validates original geometry from disk.
+    """
+    manifest_path = Path(manifest_path)
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+    with manifest_path.open("r", newline="", encoding="utf-8") as fp:
+        rows = list(csv.DictReader(fp))
+
+    if not rows:
+        raise ValueError(f"Manifest contains no rows: {manifest_path}")
+
+    image_column = None
+    for candidate in ("selected_image_path", "image_path"):
+        if candidate in rows[0]:
+            image_column = candidate
+            break
+    if image_column is None:
+        raise ValueError(
+            "Manifest must contain one of the image columns: "
+            "'selected_image_path' or 'image_path'."
+        )
+    if "mask_path" not in rows[0]:
+        raise ValueError("Manifest must contain 'mask_path' column.")
+
+    pairs: List[Tuple[Path, Path]] = []
+    for row in rows:
+        if required_label_scheme is not None and "label_scheme" in row:
+            if (row.get("label_scheme") or "").strip() != required_label_scheme:
+                continue
+
+        if require_shape_match and "shape_match" in row:
+            shape_match_text = (row.get("shape_match") or "").strip()
+            if shape_match_text in {"0", "False", "false"}:
+                continue
+
+        image_path = Path((row.get(image_column) or "").strip())
+        mask_path = Path((row.get("mask_path") or "").strip())
+        if not image_path or not mask_path:
+            continue
+        if require_existing_files and (not image_path.exists() or not mask_path.exists()):
+            continue
+        pairs.append((image_path, mask_path))
+
+    if not pairs:
+        raise ValueError(
+            "No usable pairs found in manifest after filtering. "
+            f"Manifest: {manifest_path}"
+        )
+
+    if require_shape_match:
+        mismatches = find_shape_mismatches(pairs)
+        if mismatches:
+            example = mismatches[0]
+            raise ValueError(
+                "Manifest contains image/mask pairs with mismatched original geometry. "
+                f"Example pair: {example[0]} ({example[2][0]}x{example[2][1]}) vs "
+                f"{example[1]} ({example[3][0]}x{example[3][1]})."
+            )
+
+    return pairs
 
 
 def _select_image_candidate_for_mask(mask_path: Path, candidates: List[Path]) -> Path:
