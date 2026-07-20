@@ -416,13 +416,15 @@ def load_pairs_from_manifest(
     require_existing_files: bool = True,
     require_shape_match: bool = True,
     required_label_scheme: Optional[str] = None,
+    dataset_root: Optional[Path] = None,
 ) -> List[Tuple[Path, Path]]:
     """Load image/mask pairs from a CSV manifest.
 
-    The manifest must contain a mask-path column and an image-path column.
+        The manifest must contain a mask-path column and an image-path column.
     Accepted aliases:
-      - image column: ``selected_image_path`` or ``image_path``
-      - mask column: ``mask_path``
+            - image column: ``selected_image_path`` or ``image_path`` or
+                ``dataset_relative_image_path``
+            - mask column: ``mask_path`` or ``dataset_relative_mask_path``
 
     Optional filters:
       - ``required_label_scheme`` checks the ``label_scheme`` column when present.
@@ -440,17 +442,22 @@ def load_pairs_from_manifest(
         raise ValueError(f"Manifest contains no rows: {manifest_path}")
 
     image_column = None
-    for candidate in ("selected_image_path", "image_path"):
+    for candidate in ("selected_image_path", "image_path", "dataset_relative_image_path"):
         if candidate in rows[0]:
             image_column = candidate
             break
     if image_column is None:
         raise ValueError(
             "Manifest must contain one of the image columns: "
-            "'selected_image_path' or 'image_path'."
+            "'selected_image_path', 'image_path', or 'dataset_relative_image_path'."
         )
-    if "mask_path" not in rows[0]:
-        raise ValueError("Manifest must contain 'mask_path' column.")
+    mask_column = None
+    for candidate in ("mask_path", "dataset_relative_mask_path"):
+        if candidate in rows[0]:
+            mask_column = candidate
+            break
+    if mask_column is None:
+        raise ValueError("Manifest must contain 'mask_path' or 'dataset_relative_mask_path' column.")
 
     pairs: List[Tuple[Path, Path]] = []
     for row in rows:
@@ -463,12 +470,27 @@ def load_pairs_from_manifest(
             if shape_match_text in {"0", "False", "false"}:
                 continue
 
-        image_path = Path((row.get(image_column) or "").strip())
-        mask_path = Path((row.get("mask_path") or "").strip())
+        exclusion_reason = (row.get("exclusion_reason") or "").strip()
+        if exclusion_reason:
+            continue
+
+        image_text = (row.get(image_column) or "").strip()
+        mask_text = (row.get(mask_column) or "").strip()
+        image_path = Path(image_text)
+        mask_path = Path(mask_text)
+        if dataset_root is not None:
+            dataset_root = Path(dataset_root)
+            if image_text and not image_path.is_absolute():
+                image_path = dataset_root / image_text
+            if mask_text and not mask_path.is_absolute():
+                mask_path = dataset_root / mask_text
         if not image_path or not mask_path:
             continue
         if require_existing_files and (not image_path.exists() or not mask_path.exists()):
-            continue
+            raise FileNotFoundError(
+                "Manifest references missing files: "
+                f"image={image_path} mask={mask_path}"
+            )
         pairs.append((image_path, mask_path))
 
     if not pairs:
@@ -533,12 +555,6 @@ def _select_image_candidate_for_mask(mask_path: Path, candidates: List[Path]) ->
             for path in best_paths
             if extension_priority.get(path.suffix.lower(), -1) == best_by_ext
         ]
-
-    if len(best_paths) > 1:
-        # If still tied, prefer deterministic alphabetical order when all
-        # candidates only differ by inconsequential path details.
-        best_paths = sorted(best_paths, key=lambda p: str(p))
-        return best_paths[0]
 
     if len(best_paths) != 1:
         candidate_list = "\n".join(f"  - {path}" for path in sorted(candidates))

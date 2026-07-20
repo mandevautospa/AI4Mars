@@ -35,6 +35,7 @@ SAMPLES_DATA_DIR: Path = DATA_DIR / "samples"  # small subset for quick iteratio
 # ---------------------------------------------------------------------------
 
 MODELS_DIR: Path = PROJECT_ROOT / "models"     # saved .pth checkpoint files
+ARTIFACTS_DIR: Path = PROJECT_ROOT / "artifacts"
 
 OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
 FIGURES_DIR: Path = OUTPUTS_DIR / "figures"    # matplotlib plots saved to disk
@@ -57,6 +58,7 @@ def ensure_project_dirs() -> None:
         PROCESSED_DATA_DIR,
         SAMPLES_DATA_DIR,
         MODELS_DIR,
+        ARTIFACTS_DIR,
         FIGURES_DIR,
         PREDICTIONS_DIR,
         LOGS_DIR,
