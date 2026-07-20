@@ -23,10 +23,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from src.metrics import mean_iou, pixel_accuracy
-from src.metrics import intersection_over_union
-
-
 # ---------------------------------------------------------------------------
 # Device helper
 # ---------------------------------------------------------------------------
@@ -94,7 +90,7 @@ def load_checkpoint(
     path: Path,
     device: torch.device,
     expected_metadata: Optional[Dict[str, Any]] = None,
-    require_metadata_match: bool = False,
+    require_metadata_match: bool = True,
 ) -> int:
     """Load model and optimizer weights from a checkpoint file.
 
@@ -272,8 +268,10 @@ def evaluate(
     """
     model.eval()
     total_loss = 0.0
-    all_preds = []
-    all_targets = []
+    total_correct = 0
+    total_valid = 0
+    class_intersections = torch.zeros(num_classes, dtype=torch.long)
+    class_unions = torch.zeros(num_classes, dtype=torch.long)
 
     with torch.no_grad():
         for images, masks in dataloader:
@@ -286,15 +284,30 @@ def evaluate(
 
             # Convert logits to predicted class IDs
             preds = logits.argmax(dim=1)        # [B, H, W]
-            all_preds.append(preds.cpu())
-            all_targets.append(masks.cpu())
+            valid = masks != ignore_index
 
-    # Concatenate all batches along the batch dimension
-    all_preds = torch.cat(all_preds, dim=0)     # [N, H, W]
-    all_targets = torch.cat(all_targets, dim=0) # [N, H, W]
+            total_correct += ((preds == masks) & valid).sum().item()
+            total_valid += valid.sum().item()
 
-    acc = pixel_accuracy(all_preds, all_targets, ignore_index=ignore_index)
-    miou = mean_iou(all_preds, all_targets, num_classes=num_classes, ignore_index=ignore_index)
+            for class_idx in range(num_classes):
+                pred_c = (preds == class_idx) & valid
+                true_c = (masks == class_idx) & valid
+                class_intersections[class_idx] += (pred_c & true_c).sum().cpu()
+                class_unions[class_idx] += (pred_c | true_c).sum().cpu()
+
+    acc = total_correct / max(total_valid, 1)
+
+    per_class_iou = []
+    for class_idx in range(num_classes):
+        union = int(class_unions[class_idx].item())
+        if union == 0:
+            per_class_iou.append(None)
+        else:
+            intersection = int(class_intersections[class_idx].item())
+            per_class_iou.append(intersection / union)
+
+    valid_scores = [score for score in per_class_iou if score is not None]
+    miou = (sum(valid_scores) / len(valid_scores)) if valid_scores else 0.0
 
     results = {
         "val_loss": total_loss / len(dataloader),
@@ -303,11 +316,6 @@ def evaluate(
     }
 
     if return_per_class_iou:
-        results["per_class_iou"] = intersection_over_union(
-            all_preds,
-            all_targets,
-            num_classes=num_classes,
-            ignore_index=ignore_index,
-        )
+        results["per_class_iou"] = per_class_iou
 
     return results
