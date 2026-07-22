@@ -220,6 +220,8 @@ def train_one_epoch(
         images = images.to(device)  # [B, 3, H, W]
         masks = masks.to(device)    # [B, H, W]
 
+        optimizer.zero_grad()
+
         # Forward pass
         logits = model(images)      # [B, num_classes, H, W]
 
@@ -230,14 +232,12 @@ def train_one_epoch(
         # does not corrupt model weights or the gradient state.
         if not torch.isfinite(loss):
             print(
-                f"  WARNING: non-finite loss ({loss.item():.4f}) at batch "
+                f"  WARNING: non-finite loss (NaN/Inf) at batch "
                 f"{batch_idx + 1} — skipping update."
             )
-            optimizer.zero_grad()
             continue
 
         # Backward pass
-        optimizer.zero_grad()
         loss.backward()
 
         # Gradient clipping to prevent exploding gradients / NaN loss.
