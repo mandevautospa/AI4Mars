@@ -264,10 +264,13 @@ def evaluate(
     -------
     dict
         Keys: ``"val_loss"`` (float), ``"pixel_acc"`` (float),
-        ``"mean_iou"`` (float).
+        ``"mean_iou"`` (float), ``"finite_loss_batches"`` (int), and
+        ``"skipped_all_ignore_loss_batches"`` (int).
     """
     model.eval()
     total_loss = 0.0
+    finite_loss_batches = 0
+    skipped_all_ignore_loss_batches = 0
     total_correct = 0
     total_valid = 0
     class_intersections = torch.zeros(num_classes, dtype=torch.long)
@@ -279,12 +282,20 @@ def evaluate(
             masks = masks.to(device)
 
             logits = model(images)              # [B, num_classes, H, W]
-            loss = loss_fn(logits, masks)
-            total_loss += loss.item()
+            valid = masks != ignore_index
+            if valid.any():
+                loss = loss_fn(logits, masks)
+                if not torch.isfinite(loss):
+                    raise RuntimeError(
+                        "Evaluation loss is non-finite for a batch containing valid target pixels."
+                    )
+                total_loss += loss.item()
+                finite_loss_batches += 1
+            else:
+                skipped_all_ignore_loss_batches += 1
 
             # Convert logits to predicted class IDs
             preds = logits.argmax(dim=1)        # [B, H, W]
-            valid = masks != ignore_index
 
             total_correct += ((preds == masks) & valid).sum().item()
             total_valid += valid.sum().item()
@@ -309,10 +320,15 @@ def evaluate(
     valid_scores = [score for score in per_class_iou if score is not None]
     miou = (sum(valid_scores) / len(valid_scores)) if valid_scores else 0.0
 
+    if finite_loss_batches == 0:
+        raise RuntimeError("Evaluation split contains no batches with valid target pixels.")
+
     results = {
-        "val_loss": total_loss / len(dataloader),
+        "val_loss": total_loss / finite_loss_batches,
         "pixel_acc": acc,
         "mean_iou": miou,
+        "finite_loss_batches": finite_loss_batches,
+        "skipped_all_ignore_loss_batches": skipped_all_ignore_loss_batches,
     }
 
     if return_per_class_iou:
