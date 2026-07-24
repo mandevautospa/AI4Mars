@@ -179,6 +179,8 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     loss_fn: nn.Module,
     device: torch.device,
+    max_grad_norm: float = 1.0,
+    scheduler: Optional[Any] = None,
 ) -> float:
     """Run one full training epoch.
 
@@ -195,18 +197,30 @@ def train_one_epoch(
         Loss function (e.g. ``CrossEntropyLoss(ignore_index=255)``).
     device : torch.device
         Device to run computations on.
+    max_grad_norm : float
+        Maximum L2 norm for gradient clipping.  Clipping stabilises training
+        and prevents NaN losses caused by exploding gradients.  Set to ``0``
+        to disable.  Default ``1.0``.
+    scheduler : optional
+        A ``torch.optim.lr_scheduler`` instance whose ``.step()`` method
+        is called **per batch** (e.g. ``OneCycleLR``) *or* ``None`` to
+        skip.  For epoch-level schedulers (e.g. ``ReduceLROnPlateau``,
+        ``CosineAnnealingLR``) call ``.step()`` outside this function.
 
     Returns
     -------
     float
-        Mean training loss over all batches in this epoch.
+        Mean training loss over all *valid* (non-NaN) batches in this epoch.
     """
     model.train()
     total_loss = 0.0
+    valid_batches = 0
 
     for batch_idx, (images, masks) in enumerate(dataloader):
         images = images.to(device)  # [B, 3, H, W]
         masks = masks.to(device)    # [B, H, W]
+
+        optimizer.zero_grad()
 
         # Forward pass
         logits = model(images)      # [B, num_classes, H, W]
@@ -214,17 +228,37 @@ def train_one_epoch(
         # Compute loss
         loss = loss_fn(logits, masks)
 
-        # Backward pass and parameter update
-        optimizer.zero_grad()
+        # Guard against NaN/Inf loss — skip the update so that one bad batch
+        # does not corrupt model weights or the gradient state.
+        if not torch.isfinite(loss):
+            print(
+                f"  WARNING: non-finite loss (NaN/Inf) at batch "
+                f"{batch_idx + 1} — skipping update."
+            )
+            continue
+
+        # Backward pass
         loss.backward()
+
+        # Gradient clipping to prevent exploding gradients / NaN loss.
+        if max_grad_norm > 0.0:
+            nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+
         optimizer.step()
 
+        # Per-batch scheduler step (e.g. OneCycleLR)
+        if scheduler is not None:
+            scheduler.step()
+
         total_loss += loss.item()
+        valid_batches += 1
 
         if (batch_idx + 1) % 10 == 0:
             print(f"  Batch {batch_idx + 1}/{len(dataloader)}  loss={loss.item():.4f}")
 
-    return total_loss / len(dataloader)
+    if valid_batches == 0:
+        return float("nan")
+    return total_loss / valid_batches
 
 
 # ---------------------------------------------------------------------------
