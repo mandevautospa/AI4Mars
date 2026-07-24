@@ -58,6 +58,44 @@ def pixel_accuracy(
     return correct.sum().item() / valid.sum().item()
 
 
+def segmentation_confusion_matrix(
+    preds: torch.Tensor,
+    targets: torch.Tensor,
+    num_classes: int = 4,
+    ignore_index: int = 255,
+) -> torch.Tensor:
+    """Count ground-truth/prediction class pairs for valid segmentation pixels.
+
+    Rows correspond to ground-truth classes and columns correspond to predicted
+    classes. Pixels whose target is *ignore_index* are excluded.
+    """
+    if preds.shape != targets.shape:
+        raise ValueError(
+            f"preds and targets must have the same shape; got {tuple(preds.shape)} and {tuple(targets.shape)}."
+        )
+
+    valid = targets != ignore_index
+    valid_targets = targets[valid].to(torch.long)
+    valid_preds = preds[valid].to(torch.long)
+
+    if valid_targets.numel() == 0:
+        return torch.zeros((num_classes, num_classes), dtype=torch.long)
+
+    if (
+        valid_targets.min().item() < 0
+        or valid_targets.max().item() >= num_classes
+        or valid_preds.min().item() < 0
+        or valid_preds.max().item() >= num_classes
+    ):
+        raise ValueError(f"Valid predictions and targets must be in [0, {num_classes - 1}].")
+
+    flattened_pairs = valid_targets * num_classes + valid_preds
+    return torch.bincount(
+        flattened_pairs,
+        minlength=num_classes * num_classes,
+    ).reshape(num_classes, num_classes)
+
+
 def intersection_over_union(
     preds: torch.Tensor,
     targets: torch.Tensor,
